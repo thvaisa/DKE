@@ -1,0 +1,5 @@
+*.dat
+lodepng.h
+lodepng.cpp
+*.out
+build
