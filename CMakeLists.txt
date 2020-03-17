@@ -12,7 +12,7 @@ file(DOWNLOAD https://raw.githubusercontent.com/lvandeve/lodepng/master/lodepng.
 
 
 find_package(PCL 1.2 REQUIRED)
-find_package(Eigen REQUIRED)
+find_package(Eigen3 REQUIRED)
 
 
 set (CMAKE_CXX_FLAGS "-O3 -mtune=native")
