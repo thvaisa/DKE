@@ -3,3 +3,6 @@ lodepng.h
 lodepng.cpp
 *.out
 build
+*.png
+*.bin
+*.json

@@ -9,22 +9,23 @@ file(DOWNLOAD https://raw.githubusercontent.com/lvandeve/lodepng/master/lodepng.
 
 
 
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(JSONCPP jsoncpp)
 
-find_package(PCL 1.2 REQUIRED)
+
 find_package(Eigen3 REQUIRED)
 
 
 set (CMAKE_CXX_FLAGS "-O3 -mtune=native -std=c++11")
+#set (CMAKE_CXX_FLAGS "-mtune=native -std=c++11 -pg")
 
-include_directories(${PCL_INCLUDE_DIRS})
-link_directories(${PCL_LIBRARY_DIRS})
-add_definitions(${PCL_DEFINITIONS})
+include_directories(${EIGEN3_INCLUDE_DIR})
+
+link_libraries(${JSONCPP_LIBRARIES})
 
 
 set_source_files_properties(lodepng.cpp PROPERTIES COMPILE_FLAGS "-ansi -pedantic")
 
 add_executable (DKE main.cpp lodepng.cpp)
-target_link_libraries (DKE ${PCL_LIBRARIES})
-
-
+target_link_libraries (DKE ${EIGEN3_LIBRARIES} ${JSONCPP_LIBRARIES})
 

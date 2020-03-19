@@ -3,8 +3,6 @@
 #include <fstream>
 #include <iostream>
 #include <vector>
-#include <pcl/point_cloud.h>
-#include <pcl/octree/octree_search.h>
 #include "lodepng.h"
 #include <Eigen/Dense>
 #include <jsoncpp/json/json.h>
@@ -55,17 +53,18 @@ void read_file_bin(std::vector<VecType>& positions, const char* fname, double sc
 
 
 //Get dimensions
-void get_dimensions(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, double* dimensions){
+template<class VecType> 
+void get_dimensions(std::vector<VecType> positions, double* dimensions){
     dimensions[0] = std::numeric_limits<double>::max();
     dimensions[1] = -std::numeric_limits<double>::max();
     dimensions[2] = dimensions[0],
     dimensions[3] = dimensions[1];
     dimensions[4] = dimensions[0];
     dimensions[5] = dimensions[1];
-    for (std::size_t i = 0; i < cloud->points.size(); ++i)
+    for (std::size_t i = 0; i < positions.size(); ++i)
     {
-        pcl::PointXYZ position = cloud->points[i];
-        double pos[3] = {position.x,position.y,position.z};
+        VecType position = positions[i];
+        double pos[3] = {position[0],position[1],position[2]};
         for(std::size_t j=0;j<3;++j){
             dimensions[j*2] = std::min(dimensions[j*2],pos[j]);
             dimensions[j*2+1] = std::max(dimensions[j*2+1],pos[j]);
@@ -74,49 +73,19 @@ void get_dimensions(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, double* dimension
 }
 
 
+double kernelFunction(Eigen::Vector3d& dist, Eigen::Matrix3d& covinv, double detCov){
 
-//Create point cloud
-pcl::PointCloud<pcl::PointXYZ>::Ptr createPointCloud(const char*  fname, double scale){
-    std::vector<pcl::PointXYZ> positions = std::vector<pcl::PointXYZ>();
-    read_file_bin<pcl::PointXYZ>(positions,fname,scale);
-
-    // Generate pointcloud data
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
-
-    cloud->width = positions.size();
-    cloud->height = 1;
-    cloud->points.resize (cloud->width * cloud->height);
-
-    for (std::size_t i = 0; i < positions.size (); ++i)
-    {
-        cloud->points[i].x = positions[i].x;
-        cloud->points[i].y = positions[i].y;
-        cloud->points[i].z = positions[i].z;
-    }
-    return cloud;
-}
-
-
-//Create octree
-pcl::octree::OctreePointCloudSearch<pcl::PointXYZ>::Ptr createOctree(pcl::PointCloud<pcl::PointXYZ>::Ptr pointCloud, double resolution){
-    pcl::octree::OctreePointCloudSearch<pcl::PointXYZ>::Ptr octree(new pcl::octree::OctreePointCloudSearch<pcl::PointXYZ>(resolution));
-
-    octree->setInputCloud (pointCloud);
-    octree->addPointsFromInputCloud ();
-    return octree;
-
+    Eigen::Vector3d a = dist;
+    double value = a.transpose()*(covinv*a);
+    value = std::exp(-0.5*value)/(std::pow(2*M_PI,3)*std::sqrt(detCov));
+    return value;
 }
 
 
 
-
-
 //Create point cloud
-pcl::PointCloud<pcl::PointXYZ>::Ptr createEstimationGrid(std::size_t* nPoints, double* bbox){
+double* create_estimation_grid(std::size_t* nPoints, double* bbox){
     //std::vector<pcl::PointXYZ>::Ptr positions = new std::vector<pcl::PointXYZ>();
-
-    // Generate pointcloud data
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
 
     double dX = (bbox[1]-bbox[0])/(nPoints[0]-1);
     double dY = (bbox[3]-bbox[2])/(nPoints[1]-1);
@@ -132,39 +101,40 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr createEstimationGrid(std::size_t* nPoints, d
     dZ = minDX;
 
 
-    cloud->width = nPoints[0]*nPoints[1]*nPoints[2];
-    cloud->height = 1;
-    cloud->points.resize (cloud->width * cloud->height);
+    double* grid = new double[nPoints[0]*nPoints[1]*nPoints[2]];
 
-
-    int indx = 0;
-    for (std::size_t i = 0; i < nPoints[0]; ++i)
-    {
-        for (std::size_t j= 0; j < nPoints[1]; ++j)
-        {
-            for (std::size_t k = 0; k < nPoints[2]; ++k)
-            {
-                cloud->points[indx].x = bbox[0]+i*dX;
-                cloud->points[indx].y = bbox[2]+j*dY;
-                cloud->points[indx].z = bbox[4]+k*dZ;
-
-                ++indx;
-            }
-        }
-    }
-    return cloud;
+    return grid;
 }
 
 
 
+inline void get_points_within_radius(Eigen::Vector3d point, double radius, 
+                            double* bbox, std::size_t* nPoints,
+                            double* densityMap,Eigen::Matrix3d& invcov, double detCov){
+    double dX = (bbox[1]-bbox[0])/nPoints[0];
 
+    int sx = std::max((int)std::ceil((point[0]-bbox[0])/dX),0);
+    int sy = std::max((int)std::ceil((point[1]-bbox[2])/dX),0);
+    int sz = std::max((int)std::ceil((point[2]-bbox[4])/dX),0);
 
-double kernelFunction(Eigen::Vector3d& x, Eigen::Vector3d & mean, Eigen::Matrix3d& covinv, double detCov){
+    int nDim = (int)std::floor(2*radius/dX); 
+    Eigen::Vector3d pos = Eigen::Vector3d(0,0,0);
+    for(int i=sx;i<=sx+nDim && i<nPoints[0];++i){
+        for(int j=sy;j<=sy+nDim && j<nPoints[1];++j){
+            for(int k=sz;i<=sz+nDim && k<nPoints[2];++k){
+                pos[0] = bbox[0]+i*dX;
+                pos[1] = bbox[2]+j*dX;
+                pos[2] = bbox[4]+k*dX;
+                Eigen::Vector3d dist = pos-point;
+                if((dist).dot(dist)<radius*radius){
+                    int indx = i*nPoints[1]*nPoints[2]+j*nPoints[2]+k;
+                    densityMap[indx] = densityMap[indx]
+                                    +kernelFunction(dist,invcov,detCov);
+                }
+            }
+        }
+    }
 
-    Eigen::Vector3d a = x-mean;
-    double value = a.transpose()*(covinv*a);
-    value = std::exp(-0.5*value)/(std::pow(2*M_PI,3)*std::sqrt(detCov));
-    return value;
 }
 
 
@@ -203,8 +173,10 @@ int main(int argc, char* argv[]){
 
 
     //Create point cloud
-    auto cloud = createPointCloud(argv[1],scale);
-    get_dimensions(cloud, bbox);
+    std::vector<Eigen::Vector3d> points = std::vector<Eigen::Vector3d>();
+    read_file_bin<Eigen::Vector3d>(points,argv[1],scale);
+    get_dimensions<Eigen::Vector3d>(points, bbox);
+    
 
     double extra = (bbox[1]-bbox[0])*0.01;
 
@@ -213,21 +185,13 @@ int main(int argc, char* argv[]){
         bbox[i*2+1] = bbox[i*2+1]+extra;
     }
 
+    
 
-    float resolution = extra*0.1;
-    
-    //auto octree = createOctree(cloud, resolution);
-    std::cout << resolution << std::endl;
-    //Create Octree for the isosurface extraction
+
     std::size_t nPoints[3] = {nPs,nPs,nPs};
-    auto cloud2 =createEstimationGrid(nPoints, bbox);
-    auto octree2 = createOctree(cloud2, resolution);
-    auto densityMap = std::vector<double>(nPoints[0]*nPoints[1]*nPoints[2]);
+    double * grid = create_estimation_grid(nPoints, bbox);
+    double * densityMap = new double[nPoints[0]*nPoints[1]*nPoints[2]];
     
-    //Iterate all the points from the simulation
-    std::vector<int> pointIdxRadiusSearch;
-    std::vector<float> pointRadiusSquaredDistance;
-    pcl::PointXYZ searchPoint;
     double maxVal = 0;    
     double radius = 2*std;
 
@@ -246,31 +210,23 @@ int main(int argc, char* argv[]){
     Eigen::Matrix3d invcov = A.inverse();
     double detCov = A.determinant();
 
+    Eigen::Vector3d searchPoint = Eigen::Vector3d();
+    auto dist_vector = std::vector<Eigen::Vector3d>(); 
+    auto indxs = std::vector<int>();
 
-    for(std::size_t i=0;i<cloud->points.size();++i){
-        searchPoint.x = cloud->points[i].x;
-        searchPoint.y = cloud->points[i].y;
-        searchPoint.z = cloud->points[i].z;
-
-        Eigen::Vector3d mean(searchPoint.x,searchPoint.y,searchPoint.z);
-        if(std::sqrt(mean.dot(mean))<0.5) continue;
-
-        if (octree2->radiusSearch (searchPoint, radius, pointIdxRadiusSearch, pointRadiusSquaredDistance) > 0)
-        {
-            for (std::size_t j = 0; j < pointIdxRadiusSearch.size (); ++j){
-                
-                Eigen::Vector3d x(cloud2->points[pointIdxRadiusSearch[j]].x,
-                                cloud2->points[pointIdxRadiusSearch[j]].y,
-                                cloud2->points[pointIdxRadiusSearch[j]].z);
-                //std::cout << kernelFunction(mean,x,invcov,detCov) << std::endl;
-                
-                densityMap[pointIdxRadiusSearch[j]] = densityMap[pointIdxRadiusSearch[j]]
-                                                        +kernelFunction(mean,x,invcov,detCov);
-                maxVal = std::max(densityMap[pointIdxRadiusSearch[j]],maxVal);
-            }
-        }
-
+    for(std::size_t i=0;i<points.size();++i){
+        //Eigen::Vector3d mean(searchPoint.x,searchPoint.y,searchPoint.z);
+        //if(std::sqrt(mean.dot(mean))<0.5) continue;
+        get_points_within_radius(points[i], radius, 
+                            bbox, nPoints,
+                            densityMap,invcov,detCov);
     }
+
+
+    for (std::size_t j = 0; j < nPoints[0]*nPoints[1]*nPoints[2]; ++j){
+        maxVal = std::max(densityMap[j],maxVal);
+    }
+
 
     std::cout << maxVal << std::endl;
 
@@ -363,7 +319,8 @@ int main(int argc, char* argv[]){
     file_id << styledWriter.write(event);
 
     file_id.close();
-
+    delete[] grid;
+    delete[] densityMap;
     return EXIT_SUCCESS;
 }
 
