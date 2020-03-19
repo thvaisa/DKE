@@ -10,12 +10,11 @@ file(DOWNLOAD https://raw.githubusercontent.com/lvandeve/lodepng/master/lodepng.
 
 
 
-
 find_package(PCL 1.2 REQUIRED)
 find_package(Eigen3 REQUIRED)
 
 
-set (CMAKE_CXX_FLAGS "-O3 -mtune=native")
+set (CMAKE_CXX_FLAGS "-O3 -mtune=native -std=c++11")
 
 include_directories(${PCL_INCLUDE_DIRS})
 link_directories(${PCL_LIBRARY_DIRS})

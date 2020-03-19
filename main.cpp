@@ -8,7 +8,7 @@
 #include "lodepng.h"
 #include <Eigen/Dense>
 #include <jsoncpp/json/json.h>
-
+#include <string>
 
 //Read points from the file
 template<class VecType> 
@@ -28,6 +28,29 @@ void read_file(std::vector<VecType>& positions, const char* fname, double scale)
         positions.push_back(VecType((a-d)*scale,(b-e)*scale,(c-f)*scale));
     }
 
+}
+
+template<class VecType> 
+void read_file_bin(std::vector<VecType>& positions, const char* fname, double scale){
+    FILE* file;
+    file = fopen(fname, "rb");
+    std::ifstream infile(fname);
+    double a,b,c;
+    double d,e,f;
+    bool first = true;
+    while (!feof(file))
+    {
+        if(first){
+            d = 0;//a;
+            e = 0;//b;
+            f = 0;//c;
+            first = false;
+        } 
+        double tmp[3];
+        std::size_t val = fread(tmp,sizeof(double),3,file); 
+        positions.push_back(VecType((tmp[0]-d)*scale,(tmp[1]-e)*scale,(tmp[2]-f)*scale));
+    }
+    fclose(file);
 }
 
 
@@ -55,7 +78,7 @@ void get_dimensions(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, double* dimension
 //Create point cloud
 pcl::PointCloud<pcl::PointXYZ>::Ptr createPointCloud(const char*  fname, double scale){
     std::vector<pcl::PointXYZ> positions = std::vector<pcl::PointXYZ>();
-    read_file<pcl::PointXYZ>(positions,fname,scale);
+    read_file_bin<pcl::PointXYZ>(positions,fname,scale);
 
     // Generate pointcloud data
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
@@ -150,22 +173,38 @@ double kernelFunction(Eigen::Vector3d& x, Eigen::Vector3d & mean, Eigen::Matrix3
 //Openvbd modified cookbook
 int main(int argc, char* argv[]){
 
-
+    //std for the normal distribution
     double std = 1.0;
+    //how many points are used to discretize the space
     std::size_t nPs = 100;
+    //scale
     double scale = 1.0e-4;
+
     double bbox[6] = {-10,10,-10,10,-10,10};
-    if(argc<3){
+    if(argc<4){
         std::cout << "Give me some parameters: " << std::endl;
         return EXIT_FAILURE;
     }
 
+    std::string str;
+    std::string output_file;
+    std::string stamp = std::string(argv[2]);
+    std = std::stod(std::string(argv[3]));
+    scale = std::stod(std::string(argv[4]));
+    nPs = std::stod(std::string(argv[5]));
+    output_file = std::string(argv[6]);
+
+
     std::cout << "output to" << std::endl;
-    std::string pngFile = std::string(argv[2])+std::string(".png");
-    std::string auxFile = std::string(argv[2])+std::string(".aux");
+    std::string pngFile = output_file+stamp+std::string(".png");
+    std::string auxFile = output_file+stamp+std::string("aux.json");
     std::cout << pngFile << " " << auxFile << std::endl;
 
-    //Create cloud from the simulation
+    std::cout << std << " " << scale << " " << nPs << " " << output_file << std::endl;
+    std::cout << stamp << " " << argv[1] << std::endl;
+
+
+    //Create point cloud
     auto cloud = createPointCloud(argv[1],scale);
     get_dimensions(cloud, bbox);
 
@@ -216,6 +255,8 @@ int main(int argc, char* argv[]){
         searchPoint.z = cloud->points[i].z;
 
         Eigen::Vector3d mean(searchPoint.x,searchPoint.y,searchPoint.z);
+        if(std::sqrt(mean.dot(mean))<0.5) continue;
+
         if (octree2->radiusSearch (searchPoint, radius, pointIdxRadiusSearch, pointRadiusSquaredDistance) > 0)
         {
             for (std::size_t j = 0; j < pointIdxRadiusSearch.size (); ++j){
@@ -224,6 +265,7 @@ int main(int argc, char* argv[]){
                                 cloud2->points[pointIdxRadiusSearch[j]].y,
                                 cloud2->points[pointIdxRadiusSearch[j]].z);
                 //std::cout << kernelFunction(mean,x,invcov,detCov) << std::endl;
+                
                 densityMap[pointIdxRadiusSearch[j]] = densityMap[pointIdxRadiusSearch[j]]
                                                         +kernelFunction(mean,x,invcov,detCov);
                 maxVal = std::max(densityMap[pointIdxRadiusSearch[j]],maxVal);
