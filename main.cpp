@@ -131,12 +131,12 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr createEstimationGrid(std::size_t* nPoints, d
     dY = minDX;
     dZ = minDX;
 
-   
+
     cloud->width = nPoints[0]*nPoints[1]*nPoints[2];
     cloud->height = 1;
     cloud->points.resize (cloud->width * cloud->height);
 
-    
+
     int indx = 0;
     for (std::size_t i = 0; i < nPoints[0]; ++i)
     {
@@ -147,8 +147,6 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr createEstimationGrid(std::size_t* nPoints, d
                 cloud->points[indx].x = bbox[0]+i*dX;
                 cloud->points[indx].y = bbox[2]+j*dY;
                 cloud->points[indx].z = bbox[4]+k*dZ;
-
-
 
                 ++indx;
             }
